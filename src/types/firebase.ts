@@ -21,6 +21,11 @@ export interface UserDoc {
   streakLastActive?: unknown
   xpPoints: number
   badges: string[]
+  parentPhone?: string
+  academicGrade?: string
+  governorate?: string
+  schoolName?: string
+  adminNotes?: string
   createdAt: unknown
   updatedAt: unknown
 }

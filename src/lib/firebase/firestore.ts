@@ -14,6 +14,7 @@ import {
   updateDoc,
   where,
   writeBatch,
+  deleteDoc,
   type DocumentData,
   type DocumentReference,
   type PartialWithFieldValue,
@@ -23,8 +24,10 @@ import {
   type UpdateData,
   type WithFieldValue,
 } from 'firebase/firestore'
+import { deleteApp, initializeApp } from 'firebase/app'
+import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth'
 
-import { db } from '@/lib/firebase/config'
+import { db, firebaseConfig } from '@/lib/firebase/config'
 import { DEFAULT_ALFREDO_COURSES } from '@/lib/courses/alfredoCourses'
 import type {
   ActivationCodeDoc,
@@ -191,6 +194,94 @@ export async function createStudentProfile(
     updatedAt: createTimestamp(),
   })
 }
+
+export async function createStudentWithPassword(payload: {
+  fullName: string
+  fullNameAr?: string
+  email: string
+  password: string
+  phone?: string
+  parentPhone?: string
+  academicGrade?: string
+  governorate?: string
+  schoolName?: string
+  adminNotes?: string
+}) {
+  const tempAppName = `create_student_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+  const secondaryApp = initializeApp(firebaseConfig, tempAppName)
+  const secondaryAuth = getAuth(secondaryApp)
+  try {
+    const cred = await createUserWithEmailAndPassword(secondaryAuth, payload.email.trim(), payload.password)
+    const uid = cred.user.uid
+    await setDocTyped<Partial<UserDoc>>(`users/${uid}`, {
+      uid,
+      email: payload.email.trim().toLowerCase(),
+      fullName: payload.fullName.trim(),
+      fullNameAr: payload.fullNameAr?.trim() ?? '',
+      phone: payload.phone?.trim() ?? '',
+      parentPhone: payload.parentPhone?.trim() ?? '',
+      academicGrade: payload.academicGrade?.trim() ?? '',
+      governorate: payload.governorate?.trim() ?? '',
+      schoolName: payload.schoolName?.trim() ?? '',
+      adminNotes: payload.adminNotes?.trim() ?? '',
+      role: 'student',
+      preferredLocale: 'ar',
+      preferredTheme: 'dark',
+      isActive: true,
+      activationRequired: false,
+      streakCount: 0,
+      xpPoints: 0,
+      badges: [],
+      createdAt: createTimestamp(),
+      updatedAt: createTimestamp(),
+    })
+    await signOut(secondaryAuth)
+    return uid
+  } finally {
+    try {
+      await deleteApp(secondaryApp)
+    } catch {
+      // ignore
+    }
+  }
+}
+
+export async function deleteUserDoc(uid: string) {
+  try {
+    await deleteDoc(doc(db, 'users', uid))
+  } catch (err) {
+    console.warn(`deleteUserDoc firestore note for ${uid}:`, err)
+  }
+}
+
+export async function resetStudentDevices(studentId: string) {
+  try {
+    const snapshot = await getDocs(query(collection(db, 'studentDevices'), where('studentId', '==', studentId)))
+    const batch = writeBatch(db)
+    snapshot.docs.forEach((d) => batch.delete(d.ref))
+    await batch.commit()
+  } catch (err) {
+    console.warn(`resetStudentDevices note for ${studentId}:`, err)
+  }
+}
+
+export async function deleteEnrollmentDoc(enrollmentId: string) {
+  try {
+    await deleteDoc(doc(db, 'enrollments', enrollmentId))
+  } catch (err) {
+    console.warn(`deleteEnrollmentDoc firestore note:`, err)
+  }
+  try {
+    const local = JSON.parse(localStorage.getItem('alfredo_local_enrollments') || '[]') as string[]
+    const parts = enrollmentId.split('_')
+    const courseId = parts.slice(1).join('_')
+    const updated = local.filter((id) => id !== courseId)
+    localStorage.setItem('alfredo_local_enrollments', JSON.stringify(updated))
+  } catch {
+    // ignore
+  }
+}
+
 
 export async function ensureGoogleProfile(options: {
   uid: string
